@@ -22,6 +22,12 @@ cd ..
 
 for cache_size in ${cache_sizes[@]}
 do
+    # --- 新增的提示信息开始 ---
+    echo "=================================================="
+    echo ">>> 开始处理 Cache Size: ${cache_size} GB <<<"
+    echo "=================================================="
+    # --- 新增的提示信息结束 ---
+    
     sed "s/constexpr uint64_t kCacheGBs.*/constexpr uint64_t kCacheGBs = $cache_size;/g" app/main_tcp.cc -i
     cd build
     make clean
