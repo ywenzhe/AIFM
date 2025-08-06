@@ -1,7 +1,7 @@
 extern "C" {
 #include <runtime/runtime.h>
 }
-#include "thread.h"
+#include "thread.h" // shenango/bindings/cc
 
 #include "array.hpp"
 #include "deref_scope.hpp"
@@ -94,7 +94,7 @@ private:
     uint64_t c;
   }; //
 
-  using AppArray = Array<ArrayEntry, kNumArrayEntries>;
+  using AppArray = Array<ArrayEntry, kNumArrayEntries>; // aifm Array
 
   std::unique_ptr<std::mt19937> generators[helpers::kNumCPUs]; // 随机数数组对象
   alignas(helpers::kHugepageSize) Req all_gen_reqs[kNumReqs];
@@ -171,18 +171,19 @@ private:
   // 初始化一个并发哈希表（Hopscotch），并为它准备好一个模拟真实世界工作负载的测试场景。aifm/exp/inc/concurrent_hopscotch.hpp
   void prepare(GenericConcurrentHopscotch *hopscotch) {
     for (uint32_t i = 0; i < helpers::kNumCPUs; i++) {
-      std::random_device rd;
-      generators[i].reset(new std::mt19937(rd()));
+      std::random_device rd; // 随机数种子
+      generators[i].reset(new std::mt19937(rd())); //为每个线程创建一个独立的随机数生成器
     }
     memset(lats_idx, 0, sizeof(lats_idx)); // 清空数组 lats_ids
     memset(key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH);
     memset(iv, 0x00, CryptoPP::AES::BLOCKSIZE);
+    // 初始化 CryptoPP::AES::Encryption 和 CryptoPP::CBC_Mode_ExternalCipher::Encryption 对象
     aesEncryption.reset(
         new CryptoPP::AES::Encryption(key, CryptoPP::AES::DEFAULT_KEYLENGTH));
     cbcEncryption.reset(
         new CryptoPP::CBC_Mode_ExternalCipher::Encryption(*aesEncryption, iv));
-    std::vector<rt::Thread> threads;
-    for (uint32_t tid = 0; tid < kNumMutatorThreads; tid++) {
+    std::vector<rt::Thread> threads; // shenango Thread
+    for (uint32_t tid = 0; tid < kNumMutatorThreads; tid++) { // 创建 kNumMutatorThreads 个变异器线程
       threads.emplace_back(rt::Thread([&, tid]() {
         auto num_reqs_per_thread = kNumReqs / kNumMutatorThreads;
         auto req_offset = tid * num_reqs_per_thread;
