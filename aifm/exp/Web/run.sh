@@ -2,15 +2,15 @@
 
 source ../../shared.sh
 
-arr_aifm_heap_size=( 563 682 1374 2850 2850 4949 7168 9387 11605 13824 16043 18261 20480 )
-arr_hashtable_idx_shift=( 25 26 27 27 28 28 28 28 28 28 28 28 28 )
+arr_aifm_heap_size=( 3200 6400 12800 25600 )
+arr_hashtable_idx_shift=( 25 26 27 28 )
 
 sudo pkill -9 main
 
 for ((i=0;i<${#arr_aifm_heap_size[@]};++i)); do
     cur_heap_size=${arr_aifm_heap_size[i]}
     cur_idx_shift=${arr_hashtable_idx_shift[i]}
-    local_mem_size=$(( (1 << ($cur_idx_shift - 20)) * 24 + $cur_heap_size )) # 单位为 MB
+    local_mem_size=$(( (1 << ($cur_idx_shift - 20)) * 24 + $cur_heap_size ))
 
     # --- 新增的提示信息开始 ---
     echo "=================================================="

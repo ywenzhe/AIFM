@@ -1,0 +1,58 @@
+AIFM_PATH=../../
+
+# 编译器设置
+CXX = g++
+CXXFLAGS = -std=c++17 -O3 -march=native -pthread -Wall -Wextra
+CXXFLAGS += -mcmodel=medium -Wno-unused-function
+
+# 包含路径
+INC = -I$(AIFM_PATH)/snappy/build -I$(AIFM_PATH)/snappy
+
+# 源文件
+main_src = main_std.cpp
+main_adaptive_src = main_std_adaptive.cpp
+main_practical_src = main_std_practical.cpp
+main_obj = $(main_src:.cpp=.o)
+main_adaptive_obj = $(main_adaptive_src:.cpp=.o)
+main_practical_obj = $(main_practical_src:.cpp=.o)
+
+# 依赖文件
+dep = $(main_obj:.o=.d) $(main_adaptive_obj:.o=.d) $(main_practical_obj:.o=.d)
+
+# 链接库
+LIBS = -lcryptopp -L$(AIFM_PATH)/snappy/build -lsnappy -lpthread
+
+# 目标
+all: main_std main_std_adaptive main_std_practical
+
+main_std: $(main_obj)
+	$(CXX) -o $@ $(CXXFLAGS) $(main_obj) $(LIBS)
+
+main_std_adaptive: $(main_adaptive_obj)
+	$(CXX) -o $@ $(CXXFLAGS) $(main_adaptive_obj) $(LIBS)
+
+main_std_practical: $(main_practical_obj)
+	$(CXX) -o $@ $(CXXFLAGS) $(main_practical_obj) $(LIBS)
+
+# 依赖文件生成
+ifneq ($(MAKECMDGOALS),clean)
+-include $(dep)
+endif
+
+%.d: %.cpp
+	@$(CXX) $(CXXFLAGS) $(INC) $< -MM -MT $(@:.d=.o) >$@
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(INC) -c $< -o $@
+
+.PHONY: clean
+clean:
+	rm -f *.o $(dep) main_std main_std_adaptive main_std_practical
+
+# 帮助信息
+help:
+	@echo "Available targets:"
+	@echo "  all       - Build the standard library version"
+	@echo "  main_std  - Build the main executable"
+	@echo "  clean     - Remove build artifacts"
+	@echo "  help      - Show this help message"

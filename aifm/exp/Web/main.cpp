@@ -1,4 +1,5 @@
-extern "C" {
+extern "C"
+{
 #include <runtime/runtime.h>
 }
 #include "thread.h"
@@ -39,8 +40,8 @@ namespace far_memory {
     class FarMemTest {
         private:
         // FarMemManager.
-        constexpr static uint64_t kCacheSize = 563 * Region::kSize; // 1MB
-        constexpr static uint64_t kFarMemSize = (17ULL << 30); // 17 GB
+        constexpr static uint64_t kCacheSize = 563 * Region::kSize;
+        constexpr static uint64_t kFarMemSize = (20ULL << 30); // 20 GB
         constexpr static uint32_t kNumGCThreads = 12;
         constexpr static uint32_t kNumConnections = 300;
 
@@ -49,12 +50,12 @@ namespace far_memory {
         constexpr static uint32_t kValueLen = 4;
         constexpr static uint32_t kLocalHashTableNumEntriesShift = 25;
         constexpr static uint32_t kRemoteHashTableNumEntriesShift = 28;
-        constexpr static uint64_t kRemoteHashTableSlabSize = (10ULL << 30) * 1.05; // 10GB + 5%
+        constexpr static uint64_t kRemoteHashTableSlabSize = (10ULL << 30); // 10GB
         constexpr static uint32_t kNumKVPairs = 1 << 27;
 
         // Array.
-        constexpr static uint32_t kNumArrayEntries = (16ULL << 30) / 8192; // 2 M entries.
-        constexpr static uint32_t kArrayEntrySize = 8192;     // 8 K
+        constexpr static uint32_t kNumArrayEntries = (16ULL << 17); // 16GB entries.
+        constexpr static uint32_t kArrayEntrySize = 8192;                  // 8 K
 
         // Runtime.
         constexpr static uint32_t kNumMutatorThreads = 40;
@@ -110,15 +111,14 @@ namespace far_memory {
         uint64_t prev_sum_hashtable_misses = 0;
         uint64_t prev_us = 0;
         uint64_t running_us = 0;
-        uint64_t start_us = 0;
-        std::atomic<bool> should_stop{ false };
-        double runtime_seconds = 0.0;
+        std::vector<double> mops_records;
+        std::vector<double> hashtable_miss_rate_records;
+        std::vector<double> array_miss_rate_records;
 
         unsigned char key[CryptoPP::AES::DEFAULT_KEYLENGTH];
         unsigned char iv[CryptoPP::AES::BLOCKSIZE];
         std::unique_ptr<CryptoPP::CBC_Mode_ExternalCipher::Encryption> cbcEncryption;
         std::unique_ptr<CryptoPP::AES::Encryption> aesEncryption;
-
 
         inline void append_uint32_to_char_array(uint32_t n, uint32_t suffix_len,
             char* array) {
@@ -137,7 +137,8 @@ namespace far_memory {
         inline void random_string(char* data, uint32_t len) {
             BUG_ON(len <= 0);
             preempt_disable();
-            auto guard = helpers::finally([&]() { preempt_enable(); });
+            auto guard = helpers::finally([&]()
+                { preempt_enable(); });
             auto& generator = *generators[get_core_num()];
             std::uniform_int_distribution<int> distribution('a', 'z' + 1);
             for (uint32_t i = 0; i < len; i++) {
@@ -153,7 +154,8 @@ namespace far_memory {
 
         inline uint32_t random_uint32() {
             preempt_disable();
-            auto guard = helpers::finally([&]() { preempt_enable(); });
+            auto guard = helpers::finally([&]()
+                { preempt_enable(); });
             auto& generator = *generators[get_core_num()];
             std::uniform_int_distribution<uint32_t> distribution(
                 0, std::numeric_limits<uint32_t>::max());
@@ -173,27 +175,27 @@ namespace far_memory {
                 new CryptoPP::CBC_Mode_ExternalCipher::Encryption(*aesEncryption, iv));
             std::vector<rt::Thread> threads;
             for (uint32_t tid = 0; tid < kNumMutatorThreads; tid++) {
-                threads.emplace_back(rt::Thread([&, tid]() {
-                    auto num_reqs_per_thread = kNumReqs / kNumMutatorThreads;
-                    auto req_offset = tid * num_reqs_per_thread;
-                    auto* thread_gen_reqs = &all_gen_reqs[req_offset];
-                    for (uint32_t i = 0; i < num_reqs_per_thread; i++) {
-                        Req req;
-                        random_req(req.data, tid);
-                        Key key;
-                        memcpy(key.data, req.data, kReqLen);
-                        for (uint32_t j = 0; j < kNumKeysPerRequest; j++) {
-                            append_uint32_to_char_array(j, kLog10NumKeysPerRequest,
-                                key.data + kReqLen);
-                            Value value;
-                            value.num = (j ? 0 : req_offset + i);
-                            DerefScope scope;
-                            hopscotch->put(scope, kKeyLen, (const uint8_t*)key.data, kValueLen,
-                                (uint8_t*)value.data);
-                        }
-                        thread_gen_reqs[i] = req;
-                    }
-                    }));
+                threads.emplace_back(rt::Thread([&, tid]()
+                    {
+                        auto num_reqs_per_thread = kNumReqs / kNumMutatorThreads;
+                        auto req_offset = tid * num_reqs_per_thread;
+                        auto* thread_gen_reqs = &all_gen_reqs[req_offset];
+                        for (uint32_t i = 0; i < num_reqs_per_thread; i++) {
+                            Req req;
+                            random_req(req.data, tid);
+                            Key key;
+                            memcpy(key.data, req.data, kReqLen);
+                            for (uint32_t j = 0; j < kNumKeysPerRequest; j++) {
+                                append_uint32_to_char_array(j, kLog10NumKeysPerRequest,
+                                    key.data + kReqLen);
+                                Value value;
+                                value.num = (j ? 0 : req_offset + i);
+                                DerefScope scope;
+                                hopscotch->put(scope, kKeyLen, (const uint8_t*)key.data, kValueLen,
+                                    (uint8_t*)value.data);
+                            }
+                            thread_gen_reqs[i] = req;
+                        } }));
             }
             for (auto& thread : threads) {
                 thread.Join();
@@ -233,14 +235,61 @@ namespace far_memory {
             if (!flag.test_and_set()) {
                 preempt_disable();
                 auto us = microtime();
+                uint64_t sum_reqs = 0;
+                uint64_t sum_hashtable_misses = 0;
+                uint64_t sum_array_misses = 0;
+                for (uint32_t i = 0; i < kNumMutatorThreads; i++) {
+                    sum_reqs += ACCESS_ONCE(req_cnts[i].c);
+                    sum_hashtable_misses += ACCESS_ONCE(local_hashtable_miss_cnts[i].c);
+                    sum_array_misses += ACCESS_ONCE(local_array_miss_cnts[i].c);
+                }
                 if (us - prev_us > kMaxPrintIntervalUs) {
+                    auto mops =
+                        ((double)(sum_reqs - prev_sum_reqs) / (us - prev_us)) * 1.098;
+                    auto hashtable_miss_rate =
+                        (double)(sum_hashtable_misses - prev_sum_hashtable_misses) /
+                        (kNumKeysPerRequest * (sum_reqs - prev_sum_reqs));
+                    auto array_miss_rate =
+                        (double)(sum_array_misses - prev_sum_array_misses) /
+                        (sum_reqs - prev_sum_reqs);
+                    mops_records.push_back(mops);
+                    hashtable_miss_rate_records.push_back(hashtable_miss_rate);
+                    array_miss_rate_records.push_back(array_miss_rate);
                     us = microtime();
                     running_us += (us - prev_us);
                     if (print_times++ >= kPrintTimes) {
-                        runtime_seconds = (double)(microtime() - start_us) / 1e6;
-                        should_stop.store(true, std::memory_order_relaxed);
+                        constexpr double kRatioChosenRecords = 0.1;
+                        uint32_t num_chosen_records =
+                            mops_records.size() * kRatioChosenRecords;
+                        mops_records.erase(mops_records.begin(),
+                            mops_records.end() - num_chosen_records);
+                        hashtable_miss_rate_records.erase(hashtable_miss_rate_records.begin(),
+                            hashtable_miss_rate_records.end() -
+                            num_chosen_records);
+                        array_miss_rate_records.erase(array_miss_rate_records.begin(),
+                            array_miss_rate_records.end() -
+                            num_chosen_records);
+                        std::cout << "mops = "
+                            << accumulate(mops_records.begin(), mops_records.end(),
+                                0.0) /
+                            mops_records.size()
+                            << std::endl;
+                        std::cout << "hashtable miss rate = "
+                            << accumulate(hashtable_miss_rate_records.begin(),
+                                hashtable_miss_rate_records.end(), 0.0) /
+                            hashtable_miss_rate_records.size()
+                            << std::endl;
+                        std::cout << "array miss rate = "
+                            << accumulate(array_miss_rate_records.begin(),
+                                array_miss_rate_records.end(), 0.0) /
+                            array_miss_rate_records.size()
+                            << std::endl;
+                        exit(0);
                     }
                     prev_us = us;
+                    prev_sum_reqs = sum_reqs;
+                    prev_sum_array_misses = sum_array_misses;
+                    prev_sum_hashtable_misses = sum_hashtable_misses;
                 }
                 preempt_enable();
                 flag.clear();
@@ -250,65 +299,63 @@ namespace far_memory {
         void bench(GenericConcurrentHopscotch* hopscotch, AppArray* array) {
             std::vector<rt::Thread> threads;
             prev_us = microtime();
-            start_us = prev_us;
             for (uint32_t tid = 0; tid < kNumMutatorThreads; tid++) {
-                threads.emplace_back(rt::Thread([&, tid]() {
-                    uint32_t cnt = 0;
-                    while (!should_stop.load(std::memory_order_relaxed)) {
-                        if (unlikely(cnt++ % kPrintPerIters == 0)) {
-                            preempt_disable();
-                            print_perf();
-                            preempt_enable();
-                        }
-                        preempt_disable();
-                        auto core_num = get_core_num();
-                        auto req_idx =
-                            all_zipf_req_indices[core_num][per_core_req_idx[core_num].c];
-                        if (unlikely(++per_core_req_idx[core_num].c == kReqSeqLen)) {
-                            per_core_req_idx[core_num].c = 0;
-                        }
-                        preempt_enable();
-
-                        auto& req = all_gen_reqs[req_idx];
-                        Key key;
-                        memcpy(key.data, req.data, kReqLen);
-                        uint32_t array_index = 0;
-                        {
-                            DerefScope scope;
-                            for (uint32_t i = 0; i < kNumKeysPerRequest; i++) {
-                                append_uint32_to_char_array(i, kLog10NumKeysPerRequest,
-                                    key.data + kReqLen);
-                                Value value;
-                                uint16_t value_len;
-                                bool forwarded = false;
-                                hopscotch->_get(kKeyLen, (const uint8_t*)key.data,
-                                    &value_len, (uint8_t*)value.data, &forwarded);
-                                ACCESS_ONCE(local_hashtable_miss_cnts[tid].c) += forwarded;
-                                array_index += value.num;
+                threads.emplace_back(rt::Thread([&, tid]()
+                    {
+                        uint32_t cnt = 0;
+                        while (1) {
+                            if (unlikely(cnt++ % kPrintPerIters == 0)) {
+                                preempt_disable();
+                                print_perf();
+                                preempt_enable();
                             }
-                        }
-                        {
-                            array_index %= kNumArrayEntries;
-                            DerefScope scope;
-                            ACCESS_ONCE(local_array_miss_cnts[tid].c) +=
-                                !array->ptrs_[array_index].meta().is_present();
-                            const auto& array_entry =
-                                array->at</* NT = */ true>(scope, array_index);
                             preempt_disable();
-                            consume_array_entry(array_entry);
+                            auto core_num = get_core_num();
+                            auto req_idx =
+                                all_zipf_req_indices[core_num][per_core_req_idx[core_num].c];
+                            if (unlikely(++per_core_req_idx[core_num].c == kReqSeqLen)) {
+                                per_core_req_idx[core_num].c = 0;
+                            }
                             preempt_enable();
-                        }
-                        preempt_disable();
-                        core_num = get_core_num();
-                        preempt_enable();
-                        ACCESS_ONCE(req_cnts[tid].c)++;
-                    }
-                    }));
+
+                            auto& req = all_gen_reqs[req_idx];
+                            Key key;
+                            memcpy(key.data, req.data, kReqLen);
+                            uint32_t array_index = 0;
+                            {
+                                DerefScope scope;
+                                for (uint32_t i = 0; i < kNumKeysPerRequest; i++) {
+                                    append_uint32_to_char_array(i, kLog10NumKeysPerRequest,
+                                        key.data + kReqLen);
+                                    Value value;
+                                    uint16_t value_len;
+                                    bool forwarded = false;
+                                    hopscotch->_get(kKeyLen, (const uint8_t*)key.data,
+                                        &value_len, (uint8_t*)value.data, &forwarded);
+                                    ACCESS_ONCE(local_hashtable_miss_cnts[tid].c) += forwarded;
+                                    array_index += value.num;
+                                }
+                            }
+                            {
+                                array_index %= kNumArrayEntries;
+                                DerefScope scope;
+                                ACCESS_ONCE(local_array_miss_cnts[tid].c) +=
+                                    !array->ptrs_[array_index].meta().is_present();
+                                const auto& array_entry =
+                                    array->at</* NT = */ true>(scope, array_index);
+                                preempt_disable();
+                                consume_array_entry(array_entry);
+                                preempt_enable();
+                            }
+                            preempt_disable();
+                            core_num = get_core_num();
+                            preempt_enable();
+                            ACCESS_ONCE(req_cnts[tid].c)++;
+                        } }));
             }
             for (auto& thread : threads) {
                 thread.Join();
             }
-            std::cout << "runtime_seconds = " << runtime_seconds << std::endl;
         }
 
         public:
@@ -325,6 +372,8 @@ namespace far_memory {
             prepare(array_ptr.get());
             std::cout << "Bench..." << std::endl;
             bench(hopscotch.get(), array_ptr.get());
+            hopscotch.reset();
+            array_ptr.reset();
         }
 
         void run(netaddr raddr) {
@@ -334,6 +383,7 @@ namespace far_memory {
                     kCacheSize, kNumGCThreads,
                     new TCPDevice(raddr, kNumConnections, kFarMemSize)));
             do_work(manager.get());
+            manager.reset();
         }
     };
 } // namespace far_memory
